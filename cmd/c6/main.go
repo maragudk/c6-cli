@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io"
 	"log"
@@ -69,15 +70,6 @@ func ping(ctx Context) error {
 func update(ctx Context) error {
 	ctx.Log.Println("Downloading database…")
 
-	// Download database and save in home directory
-	res, err := http.Get("https://assets.c6.dk/c6.db")
-	if err != nil {
-		return fmt.Errorf("cannot download database: %w", err)
-	}
-	defer func() {
-		_ = res.Body.Close()
-	}()
-
 	dbPath, err := getDatabasePath()
 	if err != nil {
 		return err
@@ -88,7 +80,27 @@ func update(ctx Context) error {
 		return fmt.Errorf("cannot create directory: %w", err)
 	}
 
-	f, err := os.Create(dbPath)
+	res, err := http.Get("https://assets.c6.dk/c6.db.gz")
+	if err != nil {
+		return fmt.Errorf("cannot download database: %w", err)
+	}
+	defer func() {
+		_ = res.Body.Close()
+	}()
+
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("cannot download database, got HTTP status code %v", res.Status)
+	}
+
+	gzipReader, err := gzip.NewReader(res.Body)
+	if err != nil {
+		return fmt.Errorf("cannot decompress database: %w", err)
+	}
+	defer func() {
+		_ = gzipReader.Close()
+	}()
+
+	f, err := os.Create(dbPath + ".tmp")
 	if err != nil {
 		return fmt.Errorf("cannot create file: %w", err)
 	}
@@ -96,8 +108,12 @@ func update(ctx Context) error {
 		_ = f.Close()
 	}()
 
-	if _, err := io.Copy(f, res.Body); err != nil {
+	if _, err := io.Copy(f, gzipReader); err != nil {
 		return fmt.Errorf("cannot write to file: %w", err)
+	}
+
+	if err := os.Rename(dbPath+".tmp", dbPath); err != nil {
+		return fmt.Errorf("cannot move database: %w", err)
 	}
 
 	ctx.Log.Println("Database downloaded to " + dbPath)
