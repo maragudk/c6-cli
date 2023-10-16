@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 
 	"zombiezen.com/go/sqlite"
@@ -38,6 +39,8 @@ func start(ctx Context) error {
 	switch os.Args[1] {
 	case "ping":
 		return ping(ctx)
+	case "sql":
+		return sql(ctx)
 	case "update":
 		return update(ctx)
 	}
@@ -65,6 +68,24 @@ func ping(ctx Context) error {
 	ctx.Log.Println("Pong!")
 
 	return nil
+}
+
+func sql(ctx Context) error {
+	dbPath, err := getDatabasePath()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("sqlite3", "-readonly", dbPath)
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	return cmd.Wait()
 }
 
 func update(ctx Context) error {
