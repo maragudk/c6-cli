@@ -119,7 +119,7 @@ func ping(ctx c6.Context) error {
 }
 
 func sql(ctx c6.Context) error {
-	cmd := exec.Command("sqlite3", "-readonly", ctx.Database)
+	cmd := exec.Command("sqlite3", "-readonly", "-column", ctx.Database)
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

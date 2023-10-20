@@ -11,6 +11,10 @@ clean:
 cover:
 	go tool cover -html=cover.out
 
+.PHONY: demo
+demo:
+	vhs demo.tape
+
 go-llama.cpp:
 	git clone --recurse-submodules https://github.com/go-skynet/go-llama.cpp
 

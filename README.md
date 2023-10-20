@@ -5,4 +5,14 @@
 
 A command line interface for [C6](https://www.c6.dk).
 
+## Installation
+
+```shell
+go install github.com/c6dk/c6-cli/cmd/c6@latest
+```
+
+## Usage
+
+![demo.gif](docs/demo.gif)
+
 Made in 🇩🇰 by [maragu](https://www.maragu.dk/).
