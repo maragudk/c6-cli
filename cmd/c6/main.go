@@ -21,27 +21,29 @@ import (
 //go:embed ggml-metal.metal
 var metal []byte
 
-type Context struct {
-	Args  []string
-	Log   *log.Logger
-	Model string
-}
-
 func main() {
 	log := log.New(os.Stderr, "", 0)
 
-	ctx := Context{
-		Log:   log,
-		Model: env.GetStringOrDefault("LLM_MODEL", "codellama-7b-instruct.Q4_K_M.gguf"),
-	}
-
-	if err := start(ctx); err != nil {
+	if err := start(log); err != nil {
 		log.Println("Error:", err)
 		os.Exit(1)
 	}
 }
 
-func start(ctx Context) error {
+func start(log *log.Logger) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get user home directory: %w", err)
+	}
+
+	c6Dir := env.GetStringOrDefault("C6_DIR", path.Join(homeDir, ".c6"))
+	ctx := c6.Context{
+		Database: env.GetStringOrDefault("C6_DATABASE", path.Join(c6Dir, "c6.db")),
+		Dir:      c6Dir,
+		Log:      log,
+		Model:    env.GetStringOrDefault("C6_LLM", path.Join(c6Dir, "codellama-7b-instruct.Q4_K_M.gguf")),
+	}
+
 	if len(os.Args) < 2 {
 		printUsage(ctx)
 		return nil
@@ -62,7 +64,7 @@ func start(ctx Context) error {
 	return nil
 }
 
-func ask(ctx Context) error {
+func ask(ctx c6.Context) error {
 	if len(ctx.Args) < 2 {
 		printUsage(ctx)
 		return nil
@@ -95,21 +97,11 @@ func ask(ctx Context) error {
 
 	question := ctx.Args[1]
 
-	c6Dir, err := getC6Dir()
-	if err != nil {
-		return err
-	}
-
-	return c6.Ask(path.Join(c6Dir, ctx.Model), question)
+	return c6.Ask(ctx, question)
 }
 
-func ping(ctx Context) error {
-	dbPath, err := getDatabasePath()
-	if err != nil {
-		return err
-	}
-
-	conn, err := sqlite.OpenConn(dbPath, sqlite.OpenReadOnly)
+func ping(ctx c6.Context) error {
+	conn, err := sqlite.OpenConn(ctx.Database, sqlite.OpenReadOnly)
 	if err != nil {
 		return fmt.Errorf("cannot open database: %w", err)
 	}
@@ -126,12 +118,8 @@ func ping(ctx Context) error {
 	return nil
 }
 
-func sql(ctx Context) error {
-	dbPath, err := getDatabasePath()
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command("sqlite3", "-readonly", dbPath)
+func sql(ctx c6.Context) error {
+	cmd := exec.Command("sqlite3", "-readonly", ctx.Database)
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -144,16 +132,10 @@ func sql(ctx Context) error {
 	return cmd.Wait()
 }
 
-func update(ctx Context) error {
+func update(ctx c6.Context) error {
 	ctx.Log.Println("Downloading database…")
 
-	dbPath, err := getDatabasePath()
-	if err != nil {
-		return err
-	}
-
-	c6Dir := path.Dir(dbPath)
-	if err := os.MkdirAll(c6Dir, 0755); err != nil {
+	if err := os.MkdirAll(ctx.Dir, 0755); err != nil {
 		return fmt.Errorf("cannot create directory: %w", err)
 	}
 
@@ -177,7 +159,7 @@ func update(ctx Context) error {
 		_ = gzipReader.Close()
 	}()
 
-	f, err := os.Create(dbPath + ".tmp")
+	f, err := os.Create(ctx.Database + ".tmp")
 	if err != nil {
 		return fmt.Errorf("cannot create file: %w", err)
 	}
@@ -189,11 +171,11 @@ func update(ctx Context) error {
 		return fmt.Errorf("cannot write to file: %w", err)
 	}
 
-	if err := os.Rename(dbPath+".tmp", dbPath); err != nil {
+	if err := os.Rename(ctx.Database+".tmp", ctx.Database); err != nil {
 		return fmt.Errorf("cannot move database: %w", err)
 	}
 
-	ctx.Log.Println("Database downloaded to " + dbPath)
+	ctx.Log.Println("Database downloaded to " + ctx.Database)
 
 	ctx.Log.Println("Downloading LLM…")
 
@@ -209,9 +191,7 @@ func update(ctx Context) error {
 		return fmt.Errorf("cannot download database, got HTTP status code %v", res.Status)
 	}
 
-	llmPath := path.Join(c6Dir, ctx.Model)
-
-	f, err = os.Create(llmPath + ".tmp")
+	f, err = os.Create(ctx.Model + ".tmp")
 	if err != nil {
 		return fmt.Errorf("cannot create file: %w", err)
 	}
@@ -223,34 +203,16 @@ func update(ctx Context) error {
 		return fmt.Errorf("cannot write to file: %w", err)
 	}
 
-	if err := os.Rename(llmPath+".tmp", llmPath); err != nil {
+	if err := os.Rename(ctx.Model+".tmp", ctx.Model); err != nil {
 		return fmt.Errorf("cannot move llm: %w", err)
 	}
 
-	ctx.Log.Println("LLM downloaded to " + llmPath)
+	ctx.Log.Println("LLM downloaded to " + ctx.Model)
 
 	return nil
 }
 
-func getDatabasePath() (string, error) {
-	c6Dir, err := getC6Dir()
-	if err != nil {
-		return "", err
-	}
-	dbPath := path.Join(c6Dir, "c6.db")
-	return dbPath, nil
-}
-
-func getC6Dir() (string, error) {
-	userHomeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot get user home directory: %w", err)
-	}
-	c6Dir := path.Join(userHomeDir, ".c6")
-	return c6Dir, nil
-}
-
-func printUsage(ctx Context) {
+func printUsage(ctx c6.Context) {
 	if len(ctx.Args) == 0 {
 		ctx.Log.Println("Usage: c6 <command>")
 		ctx.Log.Println()
