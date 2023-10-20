@@ -10,22 +10,31 @@ import (
 	"os/exec"
 	"path"
 
+	"github.com/maragudk/env"
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
+
+	"github.com/c6dk/c6-cli"
 )
+
+type Context struct {
+	Args  []string
+	Log   *log.Logger
+	Model string
+}
 
 func main() {
 	log := log.New(os.Stderr, "", 0)
-	ctx := Context{Log: log}
+
+	ctx := Context{
+		Log:   log,
+		Model: env.GetStringOrDefault("LLM_MODEL", "codellama-7b-instruct.Q4_K_M.gguf"),
+	}
+
 	if err := start(ctx); err != nil {
 		log.Println("Error:", err)
 		os.Exit(1)
 	}
-}
-
-type Context struct {
-	Log  *log.Logger
-	Args []string
 }
 
 func start(ctx Context) error {
@@ -37,6 +46,8 @@ func start(ctx Context) error {
 	ctx.Args = os.Args[1:]
 
 	switch os.Args[1] {
+	case "ask":
+		return ask(ctx)
 	case "ping":
 		return ping(ctx)
 	case "sql":
@@ -45,6 +56,22 @@ func start(ctx Context) error {
 		return update(ctx)
 	}
 	return nil
+}
+
+func ask(ctx Context) error {
+	if len(ctx.Args) < 2 {
+		printUsage(ctx)
+		return nil
+	}
+
+	question := ctx.Args[1]
+
+	c6Dir, err := getC6Dir()
+	if err != nil {
+		return err
+	}
+
+	return c6.Ask(path.Join(c6Dir, ctx.Model), question)
 }
 
 func ping(ctx Context) error {
@@ -139,22 +166,75 @@ func update(ctx Context) error {
 
 	ctx.Log.Println("Database downloaded to " + dbPath)
 
+	ctx.Log.Println("Downloading LLM…")
+
+	res, err = http.Get("https://assets.c6.dk/" + ctx.Model)
+	if err != nil {
+		return fmt.Errorf("cannot download llm: %w", err)
+	}
+	defer func() {
+		_ = res.Body.Close()
+	}()
+
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("cannot download database, got HTTP status code %v", res.Status)
+	}
+
+	llmPath := path.Join(c6Dir, ctx.Model)
+
+	f, err = os.Create(llmPath + ".tmp")
+	if err != nil {
+		return fmt.Errorf("cannot create file: %w", err)
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	if _, err := io.Copy(f, res.Body); err != nil {
+		return fmt.Errorf("cannot write to file: %w", err)
+	}
+
+	if err := os.Rename(llmPath+".tmp", llmPath); err != nil {
+		return fmt.Errorf("cannot move llm: %w", err)
+	}
+
+	ctx.Log.Println("LLM downloaded to " + llmPath)
+
 	return nil
 }
 
 func getDatabasePath() (string, error) {
+	c6Dir, err := getC6Dir()
+	if err != nil {
+		return "", err
+	}
+	dbPath := path.Join(c6Dir, "c6.db")
+	return dbPath, nil
+}
+
+func getC6Dir() (string, error) {
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot get user home directory: %w", err)
 	}
 	c6Dir := path.Join(userHomeDir, ".c6")
-	dbPath := path.Join(c6Dir, "c6.db")
-	return dbPath, nil
+	return c6Dir, nil
 }
 
 func printUsage(ctx Context) {
-	ctx.Log.Println("Usage: c6 <command>")
-	ctx.Log.Println()
-	ctx.Log.Println("Commands:")
-	ctx.Log.Println("  update    Update the local database")
+	if len(ctx.Args) == 0 {
+		ctx.Log.Println("Usage: c6 <command>")
+		ctx.Log.Println()
+		ctx.Log.Println("Commands:")
+		ctx.Log.Println("  ask       Ask the local database with natural language")
+		ctx.Log.Println("  ping      Ping the local database")
+		ctx.Log.Println("  sql       Open an SQLite shell")
+		ctx.Log.Println("  update    Update the local database and LLM")
+		return
+	}
+
+	switch ctx.Args[0] {
+	case "ask":
+		ctx.Log.Println("Usage: c6 ask <question>")
+	}
 }

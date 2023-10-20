@@ -1,14 +1,26 @@
 .PHONY: build
-build:
-	go build ./cmd/c6
+build: ggml-metal.metal
+	CGO_LDFLAGS="-framework Foundation -framework Metal -framework MetalKit -framework MetalPerformanceShaders" LIBRARY_PATH=${PWD} C_INCLUDE_PATH=${PWD} go build ./cmd/c6
+
+.PHONY: clean
+clean:
+	cd go-llama.cpp && make clean
+	rm -f ggml-metal.metal
 
 .PHONY: cover
 cover:
 	go tool cover -html=cover.out
 
+go-llama.cpp:
+	git clone --recurse-submodules https://github.com/go-skynet/go-llama.cpp
+
 .PHONY: install
 install:
 	go install ./cmd/c6
+
+ggml-metal.metal: go-llama.cpp
+	cd go-llama.cpp && BUILD_TYPE=metal make libbinding.a
+	cp go-llama.cpp/build/bin/ggml-metal.metal .
 
 .PHONY: lint
 lint:
