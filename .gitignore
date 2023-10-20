@@ -1,5 +1,5 @@
 cover.out
 /c6
-/ggml-metal.metal
+ggml-metal.metal
 /go-llama.cpp
 /llama*.log

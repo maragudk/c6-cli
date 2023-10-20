@@ -15,12 +15,13 @@ go-llama.cpp:
 	git clone --recurse-submodules https://github.com/go-skynet/go-llama.cpp
 
 .PHONY: install
-install:
-	go install ./cmd/c6
+install: ggml-metal.metal
+	CGO_LDFLAGS="-framework Foundation -framework Metal -framework MetalKit -framework MetalPerformanceShaders" LIBRARY_PATH=${PWD} C_INCLUDE_PATH=${PWD} go install ./cmd/c6
 
 ggml-metal.metal: go-llama.cpp
 	cd go-llama.cpp && BUILD_TYPE=metal make libbinding.a
 	cp go-llama.cpp/build/bin/ggml-metal.metal .
+	cp go-llama.cpp/build/bin/ggml-metal.metal ./cmd/c6
 
 .PHONY: lint
 lint:

@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/gzip"
+	_ "embed"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +17,9 @@ import (
 
 	"github.com/c6dk/c6-cli"
 )
+
+//go:embed ggml-metal.metal
+var metal []byte
 
 type Context struct {
 	Args  []string
@@ -62,6 +66,31 @@ func ask(ctx Context) error {
 	if len(ctx.Args) < 2 {
 		printUsage(ctx)
 		return nil
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot get executable path: %w", err)
+	}
+
+	// Write the metal file to disk.
+	// This is needed for llama2 to work.
+	metalPath := path.Join(path.Dir(executable), "ggml-metal.metal")
+	metalF, err := os.Create(metalPath)
+	if err != nil {
+		return fmt.Errorf("cannot create metal file: %w", err)
+	}
+	defer func() {
+		if err := metalF.Close(); err != nil {
+			ctx.Log.Println("Error closing metal file:", err)
+		}
+		if err := os.Remove(metalPath); err != nil {
+			ctx.Log.Println("Error removing metal file:", err)
+		}
+	}()
+
+	if _, err := metalF.Write(metal); err != nil {
+		return fmt.Errorf("cannot write metal file: %w", err)
 	}
 
 	question := ctx.Args[1]
